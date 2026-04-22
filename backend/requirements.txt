@@ -25,3 +25,7 @@ google-auth-httplib2
 google-api-python-client
 mcp
 python-multipart
+openai
+PyMuPDF
+Pillow
+python-dotenv
