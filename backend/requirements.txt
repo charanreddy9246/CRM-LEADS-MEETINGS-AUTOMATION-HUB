@@ -29,3 +29,4 @@ openai
 PyMuPDF
 Pillow
 python-dotenv
+aiofiles

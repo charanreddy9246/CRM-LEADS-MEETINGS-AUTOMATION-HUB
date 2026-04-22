@@ -6,8 +6,10 @@ import logging
 import shutil
 import asyncio
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi import FastAPI, UploadFile, File, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from groq import Groq
 import base64
@@ -427,6 +429,25 @@ async def push_meetings_to_zoho(meetings, original_filename=None):
 # ============================================================
 # ENDPOINTS
 # ============================================================
+# ============================================================
+# FRONTEND & STATIC FILES
+# ============================================================
+FRONTEND_DIST = os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")
+
+@app.get("/")
+@app.head("/")
+async def serve_index():
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"status": "online", "service": "CRM Pipeline API", "msg": "Frontend not found, but API is live"}
+
+# Mount assets and other static files
+if os.path.exists(FRONTEND_DIST):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+    # For any other static files in dist (favicon, etc)
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIST), name="static_root")
+
 @app.post("/process-audio")
 async def process_audio(file: UploadFile = File(...)):
     temp_path = f"incoming/{file.filename}"
@@ -499,6 +520,19 @@ class MeetingSubmission(BaseModel):
 async def sync_meetings(sub: MeetingSubmission):
     results = await push_meetings_to_zoho(sub.meetings, sub.filename)
     return {"status": "success", "results": results}
+
+@app.exception_handler(404)
+async def spa_fallback_handler(request: Request, exc: HTTPException):
+    # Check if it's an API request
+    if request.url.path.startswith("/process") or request.url.path.startswith("/submit") or request.url.path.startswith("/sync"):
+        return JSONResponse(status_code=404, content={"detail": exc.detail})
+    
+    # Fallback to frontend index.html for SPA
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    
+    return JSONResponse(status_code=404, content={"detail": exc.detail})
 
 if __name__ == "__main__":
     import uvicorn
