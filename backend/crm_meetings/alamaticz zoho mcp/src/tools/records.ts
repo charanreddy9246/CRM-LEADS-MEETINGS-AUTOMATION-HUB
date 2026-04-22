@@ -54,7 +54,6 @@ Returns: JSON with data array and info object containing pagination details.`,
         const text = JSON.stringify(data, null, 2);
         return {
           content: [{ type: "text", text: text.length > CHARACTER_LIMIT ? text.slice(0, CHARACTER_LIMIT) + "\n... [truncated]" : text }],
-          structuredContent: data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -91,7 +90,6 @@ Returns: JSON with a data array containing one record object.`,
         const text = JSON.stringify(data, null, 2);
         return {
           content: [{ type: "text", text: text }],
-          structuredContent: data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -134,7 +132,6 @@ Returns: JSON with status (success/error) and IDs for each record.`,
         const response = await client.post<ZohoActionResponse>(`/${module}`, body);
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -172,7 +169,6 @@ Returns: JSON with status (success/error) per record.`,
         const response = await client.put<ZohoActionResponse>(`/${module}`, body);
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -208,7 +204,6 @@ Returns: JSON with action (insert/update), status, and record IDs per entry.`,
         const response = await client.post<ZohoActionResponse>(`/${module}/upsert`, body);
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -244,7 +239,6 @@ Returns: JSON with status (success/error) per record ID.`,
         });
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -302,7 +296,6 @@ Returns: JSON with data array and info pagination object.`,
         const text = JSON.stringify(data, null, 2);
         return {
           content: [{ type: "text", text: text.length > CHARACTER_LIMIT ? text.slice(0, CHARACTER_LIMIT) + "\n... [truncated]" : text }],
-          structuredContent: data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -338,7 +331,6 @@ Returns: JSON with deleted records including deleted_by, display_name, deleted_t
         const { data } = await client.get(`/${module}/deleted`, { params: { type, page, per_page } });
         return {
           content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-          structuredContent: data as Record<string, unknown>,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -383,7 +375,6 @@ Returns: JSON with related records and pagination info.`,
         const text = JSON.stringify(data, null, 2);
         return {
           content: [{ type: "text", text: text.length > CHARACTER_LIMIT ? text.slice(0, CHARACTER_LIMIT) + "\n... [truncated]" : text }],
-          structuredContent: data as Record<string, unknown>,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -438,7 +429,6 @@ Returns: JSON with created/associated Contact, Account, and Deal IDs.`,
         const response = await client.post<ZohoConvertLeadResponse>(`/Leads/${lead_id}/actions/convert`, body);
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -478,7 +468,6 @@ Returns: JSON with success/failure per record and success_count summary.`,
         });
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data as Record<string, unknown>,
         };
       } catch (error) {
         return { content: [{ type: "text", text: handleApiError(error) }] };
@@ -518,9 +507,74 @@ Returns: JSON with attachment metadata including ID and creation details.`,
         const response = await client.post(`/${module}/${record_id}/Attachments`, null, { params });
         return {
           content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
-          structuredContent: response.data as Record<string, unknown>,
         };
       } catch (error) {
+        return { content: [{ type: "text", text: handleApiError(error) }] };
+      }
+    }
+  );
+
+  // ── UPLOAD FILE ATTACHMENT ────────────────────────────────────────────────
+  server.registerTool(
+    "zohocrm_upload_file",
+    {
+      title: "Upload File to a Record",
+      description: `Upload a local file as an attachment to a specific record in Zoho CRM.
+      
+Args:
+  - module (string): CRM module name (e.g. Events, Contacts)
+  - record_id (string): ID of the record to attach the file to
+  - file_path (string): Absolute path to the local file to upload
+
+Returns: JSON with attachment metadata including ID.`,
+      inputSchema: z.object({
+        module: z.string().min(1).describe("CRM module name"),
+        record_id: z.string().min(1).describe("Record ID"),
+        file_path: z.string().min(1).describe("Absolute local file path"),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ module, record_id, file_path }) => {
+      try {
+        console.error(`[INFO] ATTACH: Processing ${module}/${record_id} for path: ${file_path}`);
+        
+        const fs = await import("node:fs/promises");
+        const path = await import("node:path");
+        const { createZohoClient, getAccessToken, getApiDomain } = await import("../services/zoho-client.js");
+
+        // 1. Validate file exists
+        await fs.access(file_path);
+        const fileBuffer = await fs.readFile(file_path);
+        const fileName = path.basename(file_path);
+        
+        // 2. Prepare Auth and Domain
+        const accessToken = await getAccessToken();
+        const apiDomain = getApiDomain();
+        const uploadUrl = `${apiDomain}/crm/v6/${module}/${record_id}/Attachments`;
+
+        // 3. Prepare Multipart Form Data using Native File and FormData (Node 20+)
+        const formData = new FormData();
+        // Native File(bits, name, options) - Node 20+
+        const file = new File([fileBuffer], fileName, { type: "application/octet-stream" });
+        formData.append("file", file);
+
+        console.error(`[INFO] ATTACH: Sending ${fileName} (${fileBuffer.length} bytes) to ${uploadUrl}`);
+
+        // 4. Use AXIOS for the upload (more reliable boundary handling)
+        const response = await (await import("axios")).default.post(uploadUrl, formData, {
+          headers: {
+            Authorization: `Zoho-oauthtoken ${accessToken}`,
+            // Do NOT set Content-Type header, axios + FormData will handle it correctly with boundary
+          },
+        });
+
+        console.error(`[INFO] ATTACH: ZOHO RESPONSE: ${JSON.stringify(response.data)}`);
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }],
+        };
+      } catch (error: any) {
+        console.error(`[ERROR] ATTACH: FAILED:`, error.response?.data || error.message);
         return { content: [{ type: "text", text: handleApiError(error) }] };
       }
     }

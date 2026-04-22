@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Upload, CheckCircle, FileText, Database, 
   Trash2, ArrowRight, RefreshCcw, Sparkles, ChevronRight,
-  User, DollarSign, Activity
+  User, DollarSign, Activity, Calendar, FileType, 
+  LayoutDashboard, Loader2, Sparkle
 } from 'lucide-react';
 
 const API_BASE = "http://localhost:8000";
@@ -15,12 +16,15 @@ const App = () => {
   const [reviewData, setReviewData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [mode, setMode] = useState('LEADS'); // 'LEADS' or 'MEETINGS'
+  const [meetingResults, setMeetingResults] = useState(null);
 
   const resetAll = () => {
     setFile(null);
     setReviewData(null);
     setIsProcessing(false);
     setSuccess(false);
+    setMeetingResults(null);
   };
 
   const handleFileChange = (e) => {
@@ -42,6 +46,33 @@ const App = () => {
     }
   };
 
+  const processFile = async () => {
+    if (!file) return;
+    if (mode === 'LEADS') {
+      await startTranscription();
+    } else {
+      await startMeetingProcessing();
+    }
+  };
+
+  const startMeetingProcessing = async () => {
+    setIsProcessing(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await axios.post(`${API_BASE}/process-meeting`, formData);
+      if (res.data.error) {
+        alert(res.data.error);
+      } else {
+        setReviewData({ meetings: res.data.meetings, filename: res.data.filename });
+      }
+    } catch (err) {
+      alert("Meeting Brain Error: " + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const confirmAndPush = async () => {
     setIsSubmitting(true);
     try {
@@ -53,6 +84,23 @@ const App = () => {
       setReviewData(null);
     } catch (err) {
       alert("Zoho Push Failed: " + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const syncMeetings = async () => {
+    setIsSubmitting(true);
+    try {
+      const res = await axios.post(`${API_BASE}/sync-meetings`, { 
+        meetings: reviewData.meetings,
+        filename: reviewData.filename 
+      });
+      setMeetingResults(res.data.results);
+      setSuccess(true);
+      setReviewData(null);
+    } catch (err) {
+      alert("Meeting Sync Failed: " + err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -84,10 +132,35 @@ const App = () => {
           </div>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-1px', color: 'var(--text-main)' }}>
-              LEAD <span style={{ fontWeight: 300, color: 'var(--text-muted)' }}>NEXUS</span>
+              CRM <span style={{ fontWeight: 300, color: 'var(--text-muted)' }}>PIPELINE</span>
             </h1>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>PREMIUM LEAD PROCESSING COMMAND</p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>LEADS & MEETINGS AUTOMATION HUB</p>
           </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button 
+            onClick={() => { setMode('LEADS'); resetAll(); }}
+            style={{ 
+              padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border)',
+              background: mode === 'LEADS' ? 'var(--primary)' : 'white',
+              color: mode === 'LEADS' ? 'white' : 'var(--text-main)',
+              display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600
+            }}
+          >
+            <Sparkles size={16} /> LEADS
+          </button>
+          <button 
+            onClick={() => { setMode('MEETINGS'); resetAll(); }}
+            style={{ 
+              padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border)',
+              background: mode === 'MEETINGS' ? 'var(--primary)' : 'white',
+              color: mode === 'MEETINGS' ? 'white' : 'var(--text-main)',
+              display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600
+            }}
+          >
+            <Calendar size={16} /> MEETINGS
+          </button>
         </div>
 
         <nav className="stepper-nav" style={{ display: 'flex', gap: '2rem', padding: '8px 24px', borderRadius: '50px', border: '1px solid var(--border)' }}>
@@ -112,13 +185,22 @@ const App = () => {
                       <div style={{ background: '#f8fafc', padding: '3rem', borderRadius: '40px', border: '2px dashed var(--border)', marginBottom: '1.5rem' }}>
                         <Upload size={48} color="var(--primary)" />
                       </div>
-                      <h3 style={{ color: 'var(--text-main)', marginBottom: '1rem' }}>SECURE LEAD UPLOAD</h3>
+                      <h3 style={{ color: 'var(--text-main)', marginBottom: '1rem', textTransform: 'uppercase' }}>
+                        UPLOAD {mode === 'LEADS' ? 'AUDIO FILE' : 'DOCUMENT'}
+                      </h3>
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '2rem', flexWrap: 'wrap' }}>
-                        {['MP3', 'WAV', 'M4A', 'OGG', 'FLAC', 'WEBM', 'MP4'].map(ext => (
-                          <span key={ext} style={{ fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', background: '#f1f5f9', color: 'var(--text-muted)', borderRadius: '6px', border: '1px solid var(--border)' }}>{ext}</span>
-                        ))}
+                        {mode === 'LEADS' 
+                          ? ['MP3', 'WAV', 'M4A', 'OGG', 'FLAC', 'WEBM', 'MP4'].map(ext => (
+                            <span key={ext} style={{ fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', background: '#f1f5f9', color: 'var(--text-muted)', borderRadius: '6px', border: '1px solid var(--border)' }}>{ext}</span>
+                          ))
+                          : ['PDF', 'DOCX', 'JPG', 'PNG'].map(ext => (
+                            <span key={ext} style={{ fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', background: '#f1f5f9', color: 'var(--text-muted)', borderRadius: '6px', border: '1px solid var(--border)' }}>{ext}</span>
+                          ))
+                        }
                       </div>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Select CRM audio for High-Fidelity AI Transcription</p>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                        {mode === 'LEADS' ? 'Select CRM audio for High-Fidelity AI Transcription' : 'Select Meetings Document for Intelligent Extraction'}
+                      </p>
                       <input type="file" onChange={handleFileChange} style={{ display: 'none' }} />
                     </label>
                   ) : (
@@ -126,8 +208,8 @@ const App = () => {
                       <FileText size={40} color="var(--primary)" style={{ marginBottom: '1rem' }} />
                       <h4 style={{ wordBreak: 'break-all', marginBottom: '1.5rem', color: 'var(--text-main)' }}>{file.name}</h4>
                       <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
-                         <button className="btn-premium" onClick={startTranscription} disabled={isProcessing}>
-                          {isProcessing ? 'TRANScribing...' : 'INITIALIZE'}
+                         <button className="btn-premium" onClick={processFile} disabled={isProcessing}>
+                          {isProcessing ? 'PROCESSING...' : 'INITIALIZE'}
                         </button>
                         <button className="btn-outline" onClick={() => setFile(null)}><Trash2 size={20} /></button>
                       </div>
@@ -138,7 +220,7 @@ const App = () => {
             </motion.div>
           )}
 
-          {reviewData && !success && (
+          {reviewData && !success && mode === 'LEADS' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} key="refine-step">
               <div className="glass-card" style={{ padding: '1.2rem 2.5rem 2.5rem 2.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
@@ -158,6 +240,34 @@ const App = () => {
             </motion.div>
           )}
 
+          {reviewData && !success && mode === 'MEETINGS' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} key="meeting-refine-step">
+              <div className="glass-card" style={{ padding: '1.2rem 2.5rem 2.5rem 2.5rem' }}>
+                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <Calendar color="var(--primary)" size={20} />
+                    <h2 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>Detected Meetings ({reviewData.meetings.length})</h2>
+                   </div>
+                 </div>
+                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+                   {reviewData.meetings.map((m, idx) => (
+                     <div key={idx} style={{ background: 'white', padding: '1.5rem', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--primary)', textTransform: 'uppercase' }}>{m.Meeting_Title}</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{m.Start_DateTime?.split('T')[0]}</span>
+                        </div>
+                        <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>{m.Contact_Name}</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{m.Description}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--text-main)' }}>
+                          <Activity size={12} /> {m.Start_DateTime?.split('T')[1]?.substring(0,5)} - {m.End_DateTime?.split('T')[1]?.substring(0,5)}
+                        </div>
+                     </div>
+                   ))}
+                 </div>
+              </div>
+            </motion.div>
+          )}
+
           {success && (
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} key="success-step" style={{ height: '100%', display: 'flex', alignItems: 'center' }}>
               <div className="glass-card" style={{ width: '100%', padding: '6rem 2rem', textAlign: 'center' }}>
@@ -165,8 +275,20 @@ const App = () => {
                   <CheckCircle size={40} color="white" />
                 </div>
                 <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '1rem', color: 'var(--text-main)' }}>VALIDATED</h1>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Data pushed to Zoho India and Drive Archive.</p>
-                <button className="btn-premium" onClick={resetAll} style={{ margin: '0 auto' }}>NEW CALL</button>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
+                  {mode === 'LEADS' ? 'Data pushed to Zoho India Leads and Drive Archive.' : `Synced ${meetingResults?.length || 0} meetings to Zoho Events.`}
+                </p>
+                {meetingResults && (
+                  <div style={{ maxWidth: '600px', margin: '0 auto 2rem', textAlign: 'left' }}>
+                    {meetingResults.map((r, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '1px solid #eee' }}>
+                        <span style={{ fontWeight: 600 }}>{r.subject}</span>
+                        <span style={{ color: r.success ? 'var(--success)' : 'red' }}>{r.success ? 'SYNCED' : 'FAILED'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button className="btn-premium" onClick={resetAll} style={{ margin: '0 auto' }}>NEW {mode === 'LEADS' ? 'CALL' : 'DOC'}</button>
               </div>
             </motion.div>
           )}
@@ -190,23 +312,28 @@ const App = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '15px' }}>
-            <button className="btn-premium" onClick={confirmAndPush} disabled={isSubmitting} style={{ width: '300px', padding: '12px', borderRadius: '12px', fontSize: '1rem' }}>
+            <button 
+              className="btn-premium" 
+              onClick={mode === 'LEADS' ? confirmAndPush : syncMeetings} 
+              disabled={isSubmitting} 
+              style={{ width: '300px', padding: '12px', borderRadius: '12px', fontSize: '1rem' }}
+            >
               <Database size={18} />
-              {isSubmitting ? 'SYNCING...' : 'FINAL SYNC TO ZOHO'}
+              {isSubmitting ? 'SYNCING...' : `FINAL SYNC TO ZOHO ${mode === 'MEETINGS' ? 'EVENTS' : 'LEADS'}`}
             </button>
             <button className="btn-outline" onClick={resetAll} style={{ width: '120px', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '12px' }}>
               <Trash2 size={16} /> CANCEL
             </button>
           </div>
           <footer style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-            &copy; 2026 ZOHO LEAD ARCHITECT // HIGH-INTELLIGENCE CRM PIPELINE
+            &copy; 2026 CRM PIPELINE // HIGH-INTELLIGENCE DATA AUTOMATION
           </footer>
         </div>
       )}
 
       {!reviewData && !success && (
          <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', padding: '2rem', textAlign: 'center', opacity: 0.5 }}>
-            <p style={{ fontSize: '0.75rem' }}>&copy; 2026 ZOHO LEAD ARCHITECT</p>
+            <p style={{ fontSize: '0.75rem' }}>&copy; 2026 CRM PIPELINE</p>
          </div>
       )}
     </div>
