@@ -52,28 +52,31 @@ STRICT RULES:
 """
 
 SYSTEM_PROMPT_MEETING_EXTRACTION = """
-Extract ALL individual meetings or appointments from the provided document content or image. 
-Many documents will contain multiple meetings in a list - identify and extract every single one separately.
+Extract ALL individual meetings or field visits from the document.
 
-CRITICAL: Look for a date header (e.g., "Wednesday, 25 March 2026") at the top of the document. 
-Apply this date to all meetings listed below it unless a specific meeting has its own different date.
-Do NOT use today's date if a date is mentioned anywhere in the document.
+STRICT FIELD MAPPING:
+1. OFFICE/COMPANY HEADERS: If a section starts with an Office/Company name (e.g., "SLN Developer Office") and NO specific individual name is listed as a header, you MUST:
+   - Set 'Meeting_Title' = The Office/Company Name (e.g., "SLN Developer Office").
+   - Set 'Contact_Name' = "Unknown".
+2. INDIVIDUAL HEADERS: If a specific person is listed (e.g., "Thuraka Ajay"), set their name as 'Contact_Name' and use the category (e.g., "BANKER") as the 'Meeting_Title'.
+3. SEPARATE RECORDS: Create separate entries for different phone numbers.
+4. NO HALLUCINATIONS: Do not use "Office Visit" as a generic title. Use the main header found at the top of the entry (e.g., "FIELD ACTIVITY" or "BANKER") as the 'Meeting_Title'.
+5. IGNORE NOTES FOR TITLE: Do NOT pull names or categories from the "NOTE:" field to use as the 'Meeting_Title'. Notes belong in the description only.
 
-Output strictly JSON in this format:
+Output Format (JSON):
 {
   "meetings": [
     {
-      "Contact_Name": "string (the primary contact or person name)",
-      "Meeting_Title": "string (The primary activity header leading the entry, e.g., 'FEALD ACTIVITY', 'SITE VISIT', etc. CRITICAL: Never use values from the 'NOTE' field or other sub-fields as the title. Only use the main section heading.)",
-      "Start_DateTime": "ISO 8601 string (e.g., 2026-03-25T09:20:00+05:30)",
-      "End_DateTime": "ISO 8601 string (e.g., 2026-03-25T09:40:00+05:30)",
-      "Participants": [{ "name": "string", "email": "string or null" }],
-      "Description": "string (include phone numbers and additional details here)",
+      "Contact_Name": "string (Specific person's name or 'Unknown')",
+      "Meeting_Title": "string (The Subject/Office Name/Category)",
+      "Start_DateTime": "ISO 8601 string",
+      "End_DateTime": "ISO 8601 string",
+      "Participants": [{ "name": "string", "phone": "string or null" }],
+      "Description": "string (The full note)",
       "Location": "string"
     }
   ]
 }
-If a field is unknown, use null or an empty string. Do not use 'Not Provided' or other filler text.
 """
 
 SYSTEM_PROMPT_EXTRACTION = """You are an Autonomous Senior Zoho CRM Architect & Data Auditor. 
@@ -361,54 +364,59 @@ async def push_meetings_to_zoho(meetings, original_filename=None):
                     logger.info("Connecting to MCP Session...")
                     await asyncio.wait_for(session.initialize(), timeout=30.0)
                     
+                    # 1. Prepare Batch Data
+                    zoho_batch = []
                     for m_data in meetings:
-                        logger.info(f"Processing Meeting: {m_data.get('Meeting_Title')} for {m_data.get('Contact_Name')}")
-                        contact_name = m_data.get("Contact_Name") or "Unknown Contact"
                         title = m_data.get("Meeting_Title") or "AI Extracted Meeting"
                         
-                        # Try to find contact
-                        contact_id = None
-                        search_res = await session.call_tool("zohocrm_search_records", {"module": "Contacts", "word": contact_name})
-                        try:
-                            res_json = json.loads(search_res.content[0].text)
-                            if res_json.get("data"):
-                                contact_id = res_json["data"][0].get("id")
-                        except: pass
+                        # Format description to include phone numbers explicitly
+                        participants = m_data.get("Participants", [])
+                        contact_info = ""
+                        for p in participants:
+                            if p.get("phone"):
+                                contact_info += f"Contact: {p.get('name')} - {p.get('phone')}\n"
+                        
+                        full_description = f"{contact_info}\n{m_data.get('Description') or ''}".strip()
 
-                        zoho_event = {
+                        zoho_batch.append({
                             "Event_Title": title,
                             "Subject": title,
-                            "Name1": contact_name,
+                            "Name1": m_data.get("Contact_Name") or "Unknown Contact",
                             "Start_DateTime": m_data.get("Start_DateTime"),
                             "End_DateTime": m_data.get("End_DateTime"),
-                            "Description": m_data.get("Description") or "",
+                            "Description": full_description,
                             "Venue": m_data.get("Location") or "Not Specified",
                             "Host": "Capitabel Solutions",
                             "Host_Name": "Capitabel Solutions"
-                        }
-                        if contact_id:
-                            zoho_event["Who_Id"] = {"id": contact_id}
+                        })
 
-                        response = await session.call_tool("zohocrm_create_records", {"module": "Events", "data": [zoho_event]})
-                        try:
-                            res_json = json.loads(response.content[0].text)
-                            rec_data = res_json.get("data", [{}])[0]
+                    # 2. Single Batch Sync
+                    logger.info(f"Syncing Batch of {len(zoho_batch)} meetings...")
+                    response = await session.call_tool("zohocrm_create_records", {"module": "Events", "data": zoho_batch})
+                    
+                    try:
+                        res_json = json.loads(response.content[0].text)
+                        for i, rec_data in enumerate(res_json.get("data", [])):
+                            title = zoho_batch[i]["Event_Title"]
                             if rec_data.get("status") == "success":
                                 record_id = rec_data.get("id") or rec_data.get("details", {}).get("id")
                                 
-                                # Attach original file if exists
+                                # Attach original file to each record in the batch
                                 if original_filename:
                                     file_path = os.path.join(BASE_DIR, "incoming", original_filename)
                                     if os.path.exists(file_path):
+                                        logger.info(f"Attaching file to record {record_id}...")
                                         await session.call_tool("zohocrm_upload_file", {
-                                            "module": "Events", "record_id": record_id, "file_path": file_path
+                                            "module": "Events", 
+                                            "record_id": record_id, 
+                                            "file_path": file_path
                                         })
                                 
                                 results.append({"subject": title, "success": True, "id": record_id})
                             else:
                                 results.append({"subject": title, "success": False, "error": rec_data.get("message")})
-                        except Exception as e:
-                            results.append({"subject": title, "success": False, "error": str(e)})
+                    except Exception as e:
+                        logger.error(f"Batch response parsing error: {e}")
         except Exception as inner_e:
             with open("sync_debug.log", "a") as f:
                 f.write(f"{datetime.now()}: MCP Startup Error: {str(inner_e)}\n")
@@ -518,6 +526,17 @@ class MeetingSubmission(BaseModel):
 
 @app.post("/sync-meetings")
 async def sync_meetings(sub: MeetingSubmission):
+    # Sort meetings chronologically by parsing the ISO strings
+    try:
+        # Use ISO string sorting (YYYY-MM-DD) which is reliable
+        sub.meetings.sort(key=lambda x: x.get("Start_DateTime", ""))
+        logger.info("--- CHRONOLOGICAL SYNC ORDER ---")
+        for i, m in enumerate(sub.meetings):
+            logger.info(f"{i+1}. {m.get('Start_DateTime')} - {m.get('Contact_Name')}")
+        logger.info("-------------------------------")
+    except Exception as e:
+        logger.error(f"Sorting failed: {e}")
+        
     results = await push_meetings_to_zoho(sub.meetings, sub.filename)
     return {"status": "success", "results": results}
 
