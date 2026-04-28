@@ -52,28 +52,71 @@ STRICT RULES:
 """
 
 SYSTEM_PROMPT_MEETING_EXTRACTION = """
-Extract ALL individual meetings or field visits from the document.
+You are a strict JSON extraction agent for Capital Solution company field work reports.
+Your ONLY job is to extract data from field work documents and return a valid JSON array.
 
-STRICT FIELD MAPPING:
-1. OFFICE/COMPANY HEADERS: If a section starts with an Office/Company name (e.g., "SLN Developer Office") and NO specific individual name is listed as a header, you MUST:
-   - Set 'Meeting_Title' = The Office/Company Name (e.g., "SLN Developer Office").
-   - Set 'Contact_Name' = "Unknown".
-2. INDIVIDUAL HEADERS: If a specific person is listed (e.g., "Thuraka Ajay"), set their name as 'Contact_Name' and use the category (e.g., "BANKER") as the 'Meeting_Title'.
-3. SEPARATE RECORDS: Create separate entries for different phone numbers.
-4. NO HALLUCINATIONS: Do not use "Office Visit" as a generic title. Use the main header found at the top of the entry (e.g., "FIELD ACTIVITY" or "BANKER") as the 'Meeting_Title'.
-5. IGNORE NOTES FOR TITLE: Do NOT pull names or categories from the "NOTE:" field to use as the 'Meeting_Title'. Notes belong in the description only.
+## RULES - FOLLOW EXACTLY, NO EXCEPTIONS:
 
-Output Format (JSON):
+### TITLE RULES:
+- If the document mentions a specific ROLE before the person's name 
+  (like Connector, Banker, Engineer, Real Estate Connector, Document Writer, Customer etc.)
+  → use that ROLE as the title
+- If a COMPANY or OFFICE name (like "SLN Developer Office") is listed as a header or section start
+  → use that OFFICE NAME as the title
+- If NO specific role or office is mentioned → use "Field Meeting" as the title
+- NEVER extract a title or role from the NOTE or DESCRIPTION fields
+- NEVER use the NOTE field as the title
+- NEVER leave title empty
+
+### ⚠️ CRITICAL - NOTE FIELD WARNING:
+- The NOTE field is STRICTLY for description only
+- NEVER, EVER use NOTE content as title
+- Even if NOTE contains words like "Customer", "Connector", "Banker" etc. → IGNORE it for title
+- NOTE must ONLY go into the description field
+
+### NAME RULES:
+- Use the person's name exactly as given
+- Clean up formatting (remove extra spaces, fix capitalization)
+- If multiple people in one meeting → list all names separated by comma
+- If NO specific person's name is mentioned → use "Unknown" as the name
+- NEVER extract or guess a name from the NOTE or DESCRIPTION field content
+
+### HOST RULES:
+- Always "Capital Solution" for every single entry, no exceptions
+
+### LOCATION RULES:
+- Use the AREA or Location field from the document
+- If location is in the heading → use that for all entries
+- Capitalize properly (e.g. "Naidupeta", "Sulurupeta", "Kalahasti")
+
+### DATE/TIME RULES:
+- Use ISO 8601 format for "from" and "to" (e.g., "2026-03-25T09:20:00")
+- Use the date mentioned in the document for all entries.
+
+### DESCRIPTION RULES:
+- Always include the NOTE content
+- Always include Contact number (from CELL NO, Contact, Phone etc.)
+- If Bank name is mentioned → include it
+- If multiple contacts → list all with names
+- Format: "[Note text]. Contact: [number]"
+- NEVER put contact info anywhere except description
+
+### OUTPUT RULES:
+- Return ONLY a valid JSON object with a key named "meetings" containing an array of objects.
+- No extra text, no explanation, no markdown.
+- Every entry must have all 7 fields: title, from, to, name, host, location, description
+
+## OUTPUT FORMAT:
 {
   "meetings": [
     {
-      "Contact_Name": "string (Specific person's name or 'Unknown')",
-      "Meeting_Title": "string (The Subject/Office Name/Category)",
-      "Start_DateTime": "ISO 8601 string",
-      "End_DateTime": "ISO 8601 string",
-      "Participants": [{ "name": "string", "phone": "string or null" }],
-      "Description": "string (The full note)",
-      "Location": "string"
+      "title": "Field Meeting",
+      "from": "ISO8601",
+      "to": "ISO8601",
+      "name": "Name",
+      "host": "Capital Solution",
+      "location": "Area",
+      "description": "Note details. Contact: 0000000000"
     }
   ]
 }
@@ -333,7 +376,14 @@ async def extract_meeting_details_with_ai(file_path):
             messages=messages,
             response_format={"type": "json_object"}
         )
-        return json.loads(response.choices[0].message.content)
+        raw_content = response.choices[0].message.content
+        logger.info(f"AI RAW RESPONSE: {raw_content}")
+        data = json.loads(raw_content)
+        
+        # Ensure it's returned in the format the rest of the code expects
+        if isinstance(data, list):
+            return {"meetings": data}
+        return data
     except Exception as e:
         logger.error(f"AI Extraction Error: {e}")
         return None
@@ -374,27 +424,25 @@ async def push_meetings_to_zoho(meetings, original_filename=None):
                     # 1. Prepare Batch Data
                     zoho_batch = []
                     for m_data in meetings:
-                        title = m_data.get("Meeting_Title") or "AI Extracted Meeting"
-                        
-                        # Format description to include phone numbers explicitly
-                        participants = m_data.get("Participants", [])
-                        contact_info = ""
-                        for p in participants:
-                            if p.get("phone"):
-                                contact_info += f"Contact: {p.get('name')} - {p.get('phone')}\n"
-                        
-                        full_description = f"{contact_info}\n{m_data.get('Description') or ''}".strip()
+                        # Map new strict prompt fields to Zoho fields
+                        title = m_data.get("title") or m_data.get("Meeting_Title") or "Field Meeting"
+                        contact_name = m_data.get("name") or m_data.get("Contact_Name") or "Unknown Contact"
+                        start_time = m_data.get("from") or m_data.get("Start_DateTime")
+                        end_time = m_data.get("to") or m_data.get("End_DateTime")
+                        location = m_data.get("location") or m_data.get("Location") or "Not Specified"
+                        description = m_data.get("description") or m_data.get("Description") or ""
+                        host = m_data.get("host") or "Capital Solution"
 
                         zoho_batch.append({
                             "Event_Title": title,
                             "Subject": title,
-                            "Name1": m_data.get("Contact_Name") or "Unknown Contact",
-                            "Start_DateTime": m_data.get("Start_DateTime"),
-                            "End_DateTime": m_data.get("End_DateTime"),
-                            "Description": full_description,
-                            "Venue": m_data.get("Location") or "Not Specified",
-                            "Host": "Capitabel Solutions",
-                            "Host_Name": "Capitabel Solutions"
+                            "Name1": contact_name,
+                            "Start_DateTime": start_time,
+                            "End_DateTime": end_time,
+                            "Description": description,
+                            "Venue": location,
+                            "Host": host,
+                            "Host_Name": host
                         })
 
                     # 2. Single Batch Sync
@@ -523,9 +571,19 @@ async def process_meeting(file: UploadFile = File(...)):
     if not extracted or "meetings" not in extracted:
         return {"filename": file.filename, "meetings": [], "error": "No meetings found"}
     
-    # Note: Google Drive Archival removed - using Zoho Attachments
+    # Map new strict fields back to what the frontend expects for display
+    frontend_meetings = []
+    for m in extracted["meetings"]:
+        frontend_meetings.append({
+            "Meeting_Title": m.get("title") or "Field Meeting",
+            "Contact_Name": m.get("name") or "Unknown Contact",
+            "Start_DateTime": m.get("from"),
+            "End_DateTime": m.get("to"),
+            "Location": m.get("location"),
+            "Description": m.get("description")
+        })
     
-    return {"filename": file.filename, "meetings": extracted["meetings"]}
+    return {"filename": file.filename, "meetings": frontend_meetings}
 
 class MeetingSubmission(BaseModel):
     meetings: list
