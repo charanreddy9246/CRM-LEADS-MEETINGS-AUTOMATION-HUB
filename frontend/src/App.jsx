@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Loader2, Sparkle
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = "https://crm-leads-meetings-automation-hub.onrender.com";
 
 const App = () => {
   const [file, setFile] = useState(null);
