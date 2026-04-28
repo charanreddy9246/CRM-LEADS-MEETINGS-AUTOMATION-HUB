@@ -179,9 +179,10 @@ def get_env_var(key):
 
 app = FastAPI()
 origins = [
+    "https://crm-leads-meetings-automation-hub.netlify.app",
     "https://crm-pipeline-leads-meetings-automati.netlify.app",
     "http://localhost:5173",
-    "http://localhost:3000",
+    "http://localhost:8000",
 ]
 
 app.add_middleware(
