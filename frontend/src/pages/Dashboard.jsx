@@ -133,7 +133,8 @@ const Dashboard = () => {
         setReviewData({
           meetings: result.meetings,
           filename: result.filename,
-          staff: result.staff || ""
+          staff: result.staff || "",
+          totalRows: result.total_rows_detected || result.meetings.length
         });
       }
     } catch (err) {
@@ -386,7 +387,9 @@ const Dashboard = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <Calendar color="var(--primary)" size={20} />
-                    <h2 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>Detected Meetings ({reviewData.meetings.length})</h2>
+                    <h2 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>
+                      Detected Meetings ({reviewData.meetings.length} / {reviewData.totalRows || reviewData.meetings.length})
+                    </h2>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
@@ -420,7 +423,7 @@ const Dashboard = () => {
                     <div style={{ background: '#ecfdf5', color: '#10b981', width: '60px', height: '60px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
                       <CheckCircle size={30} />
                     </div>
-                    <div style={{ fontSize: '1.8rem', fontWeight: 800 }}>{meetingResults?.filter(r => r.success).length || 0}</div>
+                    <div style={{ fontSize: '1.8rem', fontWeight: 800 }}>{meetingResults?.filter(r => r.success).length || 0} / {meetingResults?.length || 0}</div>
                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>SUCCESSFUL</div>
                   </div>
 

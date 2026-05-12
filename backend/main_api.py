@@ -140,6 +140,7 @@ Your ONLY job is to extract data from Excel rows and return a valid JSON object.
 - **Rule 1:** Extract EVERY SINGLE row from the document. Do NOT stop early.
 - **Rule 2:** If there are 7 rows in the Excel, you MUST return 7 meeting objects.
 - **Rule 3:** Only skip a row if the Name or Date is completely blank.
+- **Rule 4:** If the time is missing but the Date is present, you MUST NOT skip the row. Set the time to 00:00:00.
 - Never include empty/blank rows in the output.
 
 ## TITLE RULES:
@@ -516,15 +517,18 @@ def extract_text_from_doc(file_path):
             import pandas as pd
             # Force all columns to be read as strings to prevent date/number shifting
             df = pd.read_excel(file_path, dtype=str)
+            df_cleaned = df.dropna(how='all')
+            total_rows = max(0, len(df_cleaned) - 1) # Subtract 1 for header
+            
             raw_json = df.to_json(orient='records')
             with open("sync_debug.log", "a") as f:
                 f.write(f"[DEBUG] Raw Excel Data: {raw_json[:500]}...\n")
-            return raw_json
+            return raw_json, total_rows
         except Exception as e:
             logger.error(f"Excel reading error: {e}")
-            return ""
+            return "", 0
 
-    return ""
+    return "", 0
 
 
 async def extract_meeting_details_with_ai(file_path):
@@ -534,8 +538,8 @@ async def extract_meeting_details_with_ai(file_path):
         return None
 
     prompt = f"{SYSTEM_PROMPT_MEETING_EXTRACTION}\nToday is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
-    text = extract_text_from_doc(file_path)
-    if not text: return None
+    text, total_rows = extract_text_from_doc(file_path)
+    if not text: return None, 0
     
     messages = [
         {"role": "system", "content": "You are a specialized Excel data analyst. Extract all rows into JSON accurately."},
@@ -554,18 +558,19 @@ async def extract_meeting_details_with_ai(file_path):
         with open("sync_debug.log", "a") as f:
             f.write(f"\n[DEBUG] AI RAW RESPONSE: {raw_content}\n")
         logger.info(f"AI RAW RESPONSE: {raw_content}")
-        return json.loads(raw_content)
+        parsed_json = json.loads(raw_content)
+        return parsed_json, total_rows
 
 
 
     except asyncio.TimeoutError:
         logger.error("AI Extraction Error: Request timed out after 180s")
-        return None
+        return None, 0
     except Exception as e:
         import traceback
         logger.error(f"AI Extraction Error: {str(e)}")
         logger.error(traceback.format_exc())
-        return None
+        return None, 0
 
 async def push_to_zoho(transcript, original_filename=None, staff=None):
     final_payload = {
@@ -845,7 +850,7 @@ async def meeting_processing_stream(file: UploadFile):
     await asyncio.sleep(0.4)
     
     yield json.dumps({"type": "progress", "percent": 48, "msg": "Extracting Meeting Intelligence..."}) + "\n"
-    extracted = await extract_meeting_details_with_ai(temp_path)
+    extracted, total_rows = await extract_meeting_details_with_ai(temp_path)
     
     if not extracted or "meetings" not in extracted:
         yield json.dumps({"type": "error", "msg": "No meetings found in file"}) + "\n"
@@ -879,7 +884,8 @@ async def meeting_processing_stream(file: UploadFile):
         "type": "result", 
         "filename": file.filename, 
         "meetings": frontend_meetings, 
-        "staff": top_staff
+        "staff": top_staff,
+        "total_rows_detected": total_rows
     }) + "\n"
 
 @app.post("/process-meeting")
