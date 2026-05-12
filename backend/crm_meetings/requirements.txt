@@ -1,9 +1,0 @@
-google-generativeai
-python-dotenv
-requests
-PyMuPDF  # fitz
-python-docx
-Pillow
-watchdog
-mcp
-openai

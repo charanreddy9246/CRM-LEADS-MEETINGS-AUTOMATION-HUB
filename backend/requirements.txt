@@ -1,32 +1,24 @@
-watchdog
-openpyxl
-pdfplumber
-python-docx
-SpeechRecognition
-pydub
-requests
-pandas
-xlrd
-eml_parser
-extract-msg
-google-generativeai
-# Audio transcription dependencies
-openai-whisper
-noisereduce
-numpy
-soundfile
+# Core Web Server
 fastapi
 uvicorn[standard]
-groq
-pydantic
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
-mcp
 python-multipart
-openai
-PyMuPDF
-Pillow
 python-dotenv
 aiofiles
+requests
+
+# AI Services (APIs)
+groq
+openai
+
+# Document Processing
+PyMuPDF
+python-docx
+Pillow
+pandas
+openpyxl
+
+# CRM & Automation
+mcp
+
+# Data Utilities
+pydantic
