@@ -10,13 +10,7 @@ import signal
 import sys
 from datetime import datetime
 
-# Graceful Shutdown Handler
-def handle_exit(sig, frame):
-    print("\nForce Quitting Backend...")
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, handle_exit)
-signal.signal(signal.SIGTERM, handle_exit)
+# Uvicorn handles graceful shutdowns automatically.
 from fastapi import FastAPI, UploadFile, File, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -677,11 +671,14 @@ async def push_meetings_to_zoho(meetings, original_filename=None, staff=None):
                             end_time = (s_dt + timedelta(minutes=30)).isoformat()
                     except: pass
 
+                    row_staff = m_data.get("staff") or m_data.get("Staff")
+                    final_staff = row_staff if row_staff and row_staff != "Unknown" else (staff or extract_staff_from_filename(original_filename))
+
                     event_payload = {
                         "Event_Title": title, "Subject": title,
                         "Start_DateTime": start_time, "End_DateTime": end_time,
                         "Description": description, "Venue": location,
-                        "Host": host, "Staff": staff or extract_staff_from_filename(original_filename),
+                        "Host": host, "Staff": final_staff,
                         "Contact_Name_Raw": contact_name # Passing through for reporting
                     }
 
