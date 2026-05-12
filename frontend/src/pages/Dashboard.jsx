@@ -366,26 +366,6 @@ const Dashboard = () => {
                     <FileText color="var(--primary)" size={20} />
                     <h2 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>Expert Dialogue Transcription</h2>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>STAFF:</span>
-                    <input
-                      type="text"
-                      value={reviewData.staff}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setReviewData({
-                          ...reviewData,
-                          staff: val,
-                          meetings: reviewData.meetings?.map(m => ({ ...m, Staff: val }))
-                        });
-                      }}
-                      placeholder="Enter Staff Name"
-                      style={{
-                        padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border)',
-                        fontSize: '0.9rem', outline: 'none', background: 'white'
-                      }}
-                    />
-                  </div>
                 </div>
                 <textarea
                   value={reviewData.transcript}
@@ -408,26 +388,6 @@ const Dashboard = () => {
                     <Calendar color="var(--primary)" size={20} />
                     <h2 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>Detected Meetings ({reviewData.meetings.length})</h2>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>STAFF:</span>
-                    <input
-                      type="text"
-                      value={reviewData.staff}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setReviewData({
-                          ...reviewData,
-                          staff: val,
-                          meetings: reviewData.meetings?.map(m => ({ ...m, Staff: val }))
-                        });
-                      }}
-                      placeholder="Enter Staff Name"
-                      style={{
-                        padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border)',
-                        fontSize: '0.9rem', outline: 'none', background: 'white'
-                      }}
-                    />
-                  </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
                   {reviewData.meetings.map((m, idx) => (
@@ -438,7 +398,7 @@ const Dashboard = () => {
                       </div>
                       <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>{m.Contact_Name}</h3>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, marginBottom: '0.5rem' }}>
-                        <User size={12} /> Staff: {m.Staff || 'Not Assigned'}
+                        <User size={12} /> Staff: {m.staff || m.Staff || 'Not Assigned'}
                       </div>
                       <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{m.Description}</p>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--text-main)' }}>
@@ -478,7 +438,7 @@ const Dashboard = () => {
                 <h1 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '1.5rem', color: 'var(--text-main)', letterSpacing: '1px' }}>Hey Team, it's all done! 🚀</h1>
 
                 {meetingResults && (
-                  <div style={{ maxWidth: '800px', margin: '0 auto 2.5rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '12px' }}>
+                  <div style={{ maxWidth: '800px', margin: '0 auto 2.5rem', maxHeight: '40vh', overflowY: 'auto', paddingRight: '12px' }}>
                     {meetingResults.map((r, i) => (
                       <div key={i} style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
