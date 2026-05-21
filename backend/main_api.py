@@ -130,7 +130,7 @@ Your ONLY job is to extract data from Excel rows and return a valid JSON object.
 - Name not found      → skip the row entirely
 - Phone not found     → set phone to null
 - Location not found  → set location to null
-- Staff not found     → set staff to "Unknown"
+- Staff not found     → set staff to null
 - Date not found      → skip the row entirely
 - TimeFrom not found  → set "from" to "[DATE]T00:00:00"
 - TimeTo not found    → set "to" to "[DATE]T00:00:00"
@@ -171,8 +171,8 @@ Your ONLY job is to extract data from Excel rows and return a valid JSON object.
 ## ⚠️ CRITICAL — DATE/TIME RULES:
 - The Date column contains the actual date for EACH ROW — read it per row
 - Do NOT assume all rows share the same date
-- Do NOT use today's date under any circumstances
-- Do NOT hardcode any date
+- The year for BOTH 'from' and 'to' MUST be identical and MUST match the year found in the Date column.
+- NEVER mix years (e.g., from 2025 to 2026) within a single meeting object.
 - Date may appear in formats like "23-04-2026", "2026-04-23", "23/04/2026" — parse all correctly
 - Time From and Time To are in H:MM or HH:MM format (e.g. "9:40", "10:02", "11:30")
 - Combine Date + Time From → "from" field in ISO 8601 format
@@ -184,7 +184,7 @@ Your ONLY job is to extract data from Excel rows and return a valid JSON object.
 ## STAFF RULES:
 - Use the value from the mapped Staff column exactly as given
 - Fix capitalization if needed (e.g. "narendra" → "Narendra")
-- If Staff is empty → use "Unknown"
+- If Staff is empty → set staff to null
 
 ## DESCRIPTION RULES:
 - Format: "[Note value]. Contact: [phone]"
@@ -517,10 +517,15 @@ def extract_text_from_doc(file_path):
             import pandas as pd
             # Force all columns to be read as strings to prevent date/number shifting
             df = pd.read_excel(file_path, dtype=str)
-            df_cleaned = df.dropna(how='all')
-            total_rows = max(0, len(df_cleaned) - 1) # Subtract 1 for header
+            # Drop rows that have less than 4 non-null values (ensures we keep valid rows while dropping blank/title rows)
+            df_cleaned = df.dropna(thresh=4)
             
-            raw_json = df.to_json(orient='records')
+            # The header row will also be in df_cleaned if we didn't specify header properly,
+            # so the actual number of data rows is the length of df_cleaned minus 1 (assuming 1 header row).
+            # But let's check if the first row in df_cleaned is actually the header.
+            total_rows = max(0, len(df_cleaned) - 1) 
+            
+            raw_json = df_cleaned.to_json(orient='records')
             with open("sync_debug.log", "a") as f:
                 f.write(f"[DEBUG] Raw Excel Data: {raw_json[:500]}...\n")
             return raw_json, total_rows
@@ -644,7 +649,7 @@ async def push_meetings_to_zoho(meetings, original_filename=None, staff=None):
                     location = m_data.get("location") or m_data.get("Location") or "Not Specified"
                     contact_phone = m_data.get("phone") or m_data.get("Phone") or ""
                     base_desc = m_data.get("description") or m_data.get("Description") or ""
-                    description = f"{base_desc}. Contact: {contact_phone}" if contact_phone else base_desc
+                    description = base_desc
                     host = m_data.get("host") or "Capital Solution"
 
                     who_id = None
@@ -677,7 +682,7 @@ async def push_meetings_to_zoho(meetings, original_filename=None, staff=None):
                     except: pass
 
                     row_staff = m_data.get("staff") or m_data.get("Staff")
-                    final_staff = row_staff if row_staff and row_staff != "Unknown" else (staff or extract_staff_from_filename(original_filename))
+                    final_staff = row_staff if row_staff and row_staff != "Unknown" else ""
 
                     event_payload = {
                         "Event_Title": title, "Subject": title,
@@ -862,10 +867,12 @@ async def meeting_processing_stream(file: UploadFile):
     
     frontend_meetings = []
 
-    top_staff = extract_staff_from_filename(file.filename)
+    top_staff = ""
     
     for m in extracted["meetings"]:
-        meeting_staff = m.get("staff") or top_staff or ""
+        meeting_staff = m.get("staff")
+        if meeting_staff == "Unknown" or meeting_staff is None:
+            meeting_staff = ""
         frontend_meetings.append({
             "Meeting_Title": m.get("title") or "Field Meeting",
             "Contact_Name": m.get("name") or m.get("Contact_Name") or "Unknown Contact",
