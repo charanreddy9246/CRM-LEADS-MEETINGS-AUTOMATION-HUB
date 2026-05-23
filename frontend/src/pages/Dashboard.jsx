@@ -351,6 +351,11 @@ const Dashboard = () => {
                         </button>
                         <button className="btn-outline" onClick={() => setFile(null)}><Trash2 size={20} /></button>
                       </div>
+                      {isProcessing && (
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '15px', fontWeight: 600 }}>
+                          Please wait, this may take a minute...
+                        </p>
+                      )}
                     </div>
 
                   )}
