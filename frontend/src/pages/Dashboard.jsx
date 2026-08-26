@@ -107,15 +107,28 @@ const Dashboard = () => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let result = null;
+      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          if (buffer.trim()) {
+            try {
+              const data = JSON.parse(buffer);
+              if (data.type === 'progress') setProcessProgress({ percent: data.percent, msg: data.msg });
+              else if (data.type === 'result') result = data;
+              else if (data.type === 'error') throw new Error(data.msg);
+            } catch(e) {}
+          }
+          break;
+        }
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim());
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
 
         for (const line of lines) {
+          if (!line.trim()) continue;
           try {
             const data = JSON.parse(line);
             if (data.type === 'progress') {
@@ -180,15 +193,28 @@ const Dashboard = () => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let finalResults = [];
+      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          if (buffer.trim()) {
+            try {
+              const data = JSON.parse(buffer);
+              if (data.type === 'progress') setSyncProgress({ current: data.current, total: data.total, name: data.name });
+              else if (data.type === 'result') finalResults = data.results;
+              else if (data.type === 'error') throw new Error(data.msg);
+            } catch(e) {}
+          }
+          break;
+        }
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim());
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
 
         for (const line of lines) {
+          if (!line.trim()) continue;
           try {
             const data = JSON.parse(line);
             if (data.type === 'progress') {

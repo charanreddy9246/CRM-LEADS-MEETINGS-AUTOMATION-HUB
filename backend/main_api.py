@@ -138,9 +138,10 @@ Your ONLY job is to extract data from Excel rows and return a valid JSON object.
 
 ## SKIP RULES:
 - **Rule 1:** Extract EVERY SINGLE row from the document. Do NOT stop early.
-- **Rule 2:** If there are 7 rows in the Excel, you MUST return 7 meeting objects.
+- **Rule 2:** Count the number of rows in the input. If there are N rows, you MUST return exactly N meeting objects. Do not stop early.
 - **Rule 3:** Only skip a row if the Name or Date is completely blank.
-- **Rule 4:** If the time is missing but the Date is present, you MUST NOT skip the row. Set the time to 00:00:00.
+- **Rule 4:** NEVER deduplicate. If there are multiple rows with the exact same Name (e.g., "Ramesh"), you MUST extract EACH ONE as a separate meeting object.
+- **Rule 5:** If the time is missing but the Date is present, you MUST NOT skip the row. Set the time to 00:00:00.
 - Never include empty/blank rows in the output.
 
 ## TITLE RULES:
@@ -526,7 +527,7 @@ def extract_text_from_doc(file_path):
             total_rows = max(0, len(df_cleaned) - 1) 
             
             raw_json = df_cleaned.to_json(orient='records')
-            with open("sync_debug.log", "a") as f:
+            with open("sync_debug.log", "a", encoding="utf-8") as f:
                 f.write(f"[DEBUG] Raw Excel Data: {raw_json[:500]}...\n")
             return raw_json, total_rows
         except Exception as e:
@@ -557,10 +558,11 @@ async def extract_meeting_details_with_ai(file_path):
         response = openai_client.chat.completions.create(
             model=MEETING_MODEL,
             messages=messages,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=16384
         )
         raw_content = response.choices[0].message.content
-        with open("sync_debug.log", "a") as f:
+        with open("sync_debug.log", "a", encoding="utf-8") as f:
             f.write(f"\n[DEBUG] AI RAW RESPONSE: {raw_content}\n")
         logger.info(f"AI RAW RESPONSE: {raw_content}")
         parsed_json = json.loads(raw_content)
@@ -866,6 +868,7 @@ async def meeting_processing_stream(file: UploadFile):
     yield json.dumps({"type": "progress", "percent": 96, "msg": "Finalizing Review..."}) + "\n"
     
     frontend_meetings = []
+    seen = set()
 
     top_staff = ""
     
@@ -873,14 +876,29 @@ async def meeting_processing_stream(file: UploadFile):
         meeting_staff = m.get("staff")
         if meeting_staff == "Unknown" or meeting_staff is None:
             meeting_staff = ""
+            
+        m_title = m.get("title") or "Field Meeting"
+        m_name = m.get("name") or m.get("Contact_Name") or "Unknown Contact"
+        m_phone = str(m.get("phone") or m.get("Phone") or "").strip()
+        m_start = m.get("from")
+        m_end = m.get("to")
+        m_loc = m.get("location")
+        m_desc = m.get("description")
+        
+        # Exact Deduplication Key
+        dup_key = (m_title, m_name, m_phone, m_start, m_end, m_loc, m_desc)
+        if dup_key in seen:
+            continue
+        seen.add(dup_key)
+        
         frontend_meetings.append({
-            "Meeting_Title": m.get("title") or "Field Meeting",
-            "Contact_Name": m.get("name") or m.get("Contact_Name") or "Unknown Contact",
-            "phone": str(m.get("phone") or m.get("Phone") or "").strip(),
-            "Start_DateTime": m.get("from"),
-            "End_DateTime": m.get("to"),
-            "Location": m.get("location"),
-            "Description": m.get("description"),
+            "Meeting_Title": m_title,
+            "Contact_Name": m_name,
+            "phone": m_phone,
+            "Start_DateTime": m_start,
+            "End_DateTime": m_end,
+            "Location": m_loc,
+            "Description": m_desc,
             "Staff": meeting_staff
         })
 
